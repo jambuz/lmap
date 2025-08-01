@@ -19,6 +19,8 @@ pub const ProcessMapParser = struct {
         path: []const u8,
     };
 
+    const MAX_MAPS_LINE_LEN = 256;
+
     pub fn init(allocator: std.mem.Allocator, pid: ?std.posix.pid_t) !ProcessMapParser {
         var arena = std.heap.ArenaAllocator.init(allocator);
         var maps = std.StringHashMap(Map).init(arena.allocator());
@@ -31,10 +33,10 @@ pub const ProcessMapParser = struct {
         const maps_file = try std.fs.openFileAbsolute(maps_file_path, .{ .mode = .read_only });
         defer maps_file.close();
 
-        var buf: [512]u8 = undefined;
+        var buf: [MAX_MAPS_LINE_LEN]u8 = undefined;
         var reader = std.io.bufferedReader(maps_file.reader());
 
-        while (try reader.reader().readUntilDelimiterOrEof(buf[0..], '\n')) |line| {
+        while (try reader.reader().readUntilDelimiterOrEof(&buf, '\n')) |line| {
             if (try parseLine(line)) |map| {
                 const owned_path = try arena.allocator().dupe(u8, map.path);
                 var owned_map = map;
@@ -94,8 +96,10 @@ pub const ProcessMapParser = struct {
         self.arena.deinit();
     }
 
-    pub fn getMap(self: *const ProcessMapParser, path: []const u8) ?Map {
-        return self.maps.get(path);
+    /// Obtains the Map entry given a path to the module on disk.
+    /// E.g. /apex/com.android.runtime/lib64/bionic/libc.so
+    pub inline fn getMapByPath(self: *const ProcessMapParser, path: []const u8) !Map {
+        return self.maps.get(path) orelse error.MapNotFound;
     }
 };
 
@@ -106,10 +110,7 @@ test "Test all maps" {
     defer parser.deinit();
 
     var it = parser.maps.iterator();
-    var count: usize = 0;
     while (it.next()) |entry| {
         std.debug.print("Map: {s} -> 0x{x}-0x{x}\n", .{ entry.key_ptr.*, entry.value_ptr.start, entry.value_ptr.end });
-        count += 1;
-        if (count >= 3) break;
     }
 }
