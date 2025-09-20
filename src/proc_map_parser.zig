@@ -1,7 +1,14 @@
 const std = @import("std");
 
-/// Linux process map parser
-pub fn ProcessMapParser(comptime max_maps: usize, comptime max_maps_file_len: usize) type {
+///  Linux process map parser
+///
+/// **Example usage**:
+/// `var parser = try ProcessMapParser(64, 1 * 1024 * 1024).init(2732);`
+/// `defer parser.deinit();`
+pub fn ProcessMapParser(
+    comptime max_maps: usize,
+    comptime max_maps_file_len: usize,
+) type {
     return struct {
         maps: std.ArrayList(Map),
 
@@ -89,11 +96,5 @@ test "Log all Maps of own process" {
     var p = try ProcessMapParser(64, 1 * 1024 * 1024).init(2732);
     defer p.deinit();
 
-    for (p.maps.items) |map| {
-        std.debug.print("Map: 0x{x}-0x{x} {s}\n", .{ map.start, map.end, map.path });
-    }
-    // const maps = p.maps.items;
-    // for (maps) |map| {
-    //     std.debug.print("{s}\n", .{map.path});
-    // }
+    for (p.maps.items) |map| std.debug.print("Map: 0x{x}-0x{x} {s}\n", .{ map.start, map.end, map.path });
 }
