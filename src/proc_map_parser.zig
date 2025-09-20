@@ -12,8 +12,6 @@ pub fn ProcessMapParser(
     return struct {
         maps: std.ArrayList(Map),
 
-        var maps_buf: [max_maps]Map = undefined;
-
         const Perms = struct {
             read: bool = false,
             write: bool = false,
@@ -43,6 +41,7 @@ pub fn ProcessMapParser(
             const read_len = try reader.read(&reader_buf);
 
             var maps_split = std.mem.splitScalar(u8, reader_buf[0..read_len], '\n');
+            var maps_buf: [max_maps]Map = undefined;
             var maps = std.ArrayList(Map).initBuffer(&maps_buf);
             while (maps_split.next()) |m| {
                 if (m.len == 0) break;
