@@ -3,7 +3,9 @@ const std = @import("std");
 /// Linux process map parser
 pub fn ProcessMapParser(comptime max_maps: usize, comptime max_maps_file_len: usize) type {
     return struct {
-        maps: [max_maps]Map = undefined,
+        maps: std.ArrayList(Map),
+
+        var maps_buf: [max_maps]Map = undefined;
 
         const Perms = struct {
             read: bool = false,
@@ -16,7 +18,7 @@ pub fn ProcessMapParser(comptime max_maps: usize, comptime max_maps_file_len: us
             start: usize,
             end: usize,
             perms: Perms,
-            path: []const u8,
+            path: [std.posix.PATH_MAX]u8,
         };
 
         // TODO: read all file contents into a fixed buf, then use std.mem.split for the final structure.
@@ -34,12 +36,10 @@ pub fn ProcessMapParser(comptime max_maps: usize, comptime max_maps_file_len: us
             const read_len = try reader.read(&reader_buf);
 
             var maps_split = std.mem.splitScalar(u8, reader_buf[0..read_len], '\n');
-            var maps: [max_maps]Map = undefined;
+            var maps = std.ArrayList(Map).initBuffer(&maps_buf);
             while (maps_split.next()) |m| {
-                if (maps_split.index) |i| {
-                    const parsed = try parseLine(m);
-                    maps[i] = parsed;
-                }
+                if (m.len == 0) break;
+                try maps.appendBounded(try parseLine(m));
             }
 
             return .{
@@ -73,14 +73,10 @@ pub fn ProcessMapParser(comptime max_maps: usize, comptime max_maps_file_len: us
             _ = tokens.next();
 
             const trimmed_path = std.mem.trim(u8, tokens.rest(), " ");
-            const path = trimmed_path;
+            var map: Map = .{ .start = start, .end = end, .perms = perms, .path = undefined };
+            std.mem.copyForwards(u8, map.path[0..trimmed_path.len], trimmed_path);
 
-            return Map{
-                .start = start,
-                .end = end,
-                .perms = perms,
-                .path = path,
-            };
+            return map;
         }
 
         pub fn deinit(self: *@This()) void {
@@ -90,11 +86,12 @@ pub fn ProcessMapParser(comptime max_maps: usize, comptime max_maps_file_len: us
 }
 
 test "Log all Maps of own process" {
-    var p = try ProcessMapParser(128, 1 * 1024 * 1024).init(1706);
+    var p = try ProcessMapParser(64, 1 * 1024 * 1024).init(2732);
     defer p.deinit();
 
-    std.debug.print("{s}\n", .{p.maps});
-
+    for (p.maps.items) |map| {
+        std.debug.print("Map: 0x{x}-0x{x} {s}\n", .{ map.start, map.end, map.path });
+    }
     // const maps = p.maps.items;
     // for (maps) |map| {
     //     std.debug.print("{s}\n", .{map.path});
