@@ -27,9 +27,13 @@ pub fn ProcessMapParser(
         };
 
         // TODO: read all file contents into a fixed buf, then use std.mem.split for the final structure.
-        pub fn init(comptime pid: ?std.posix.pid_t) !@This() {
+        pub fn init(pid: ?std.posix.pid_t) !@This() {
             const maps_file_path = blk: {
-                if (pid) |p| break :blk std.fmt.comptimePrint("/proc/{}/maps", .{p});
+                if (pid) |p| {
+                    var buffer: [32]u8 = undefined;
+                    const path = try std.fmt.bufPrint(&buffer, "/proc/{}/maps", .{p});
+                    break :blk path;
+                }
                 break :blk "/proc/self/maps";
             };
 
@@ -92,7 +96,7 @@ pub fn ProcessMapParser(
 }
 
 test "Log all Maps of own process" {
-    var p = try ProcessMapParser(64, 1 * 1024 * 1024).init(2732);
+    var p = try ProcessMapParser(64, 1 * 1024 * 1024).init(1000 + 764);
     defer p.deinit();
 
     for (p.maps.items) |map| std.debug.print("Map: 0x{x}-0x{x} {s}\n", .{ map.start, map.end, map.path });
