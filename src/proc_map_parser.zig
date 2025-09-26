@@ -6,11 +6,13 @@ const std = @import("std");
 /// `var parser = try ProcessMapParser(64, 1 * 1024 * 1024).init(2732);`
 /// `defer parser.deinit();`
 pub fn ProcessMapParser(
+    /// maximum number maps to process
     comptime max_maps: usize,
-    comptime max_maps_file_len: usize,
 ) type {
     return struct {
         maps: std.ArrayList(Map),
+
+        const MAX_MAPS_FILE_LEN = @sizeOf(Map) * max_maps;
 
         const Perms = struct {
             read: bool = false,
@@ -40,7 +42,7 @@ pub fn ProcessMapParser(
             const maps_file = try std.fs.openFileAbsolute(maps_file_path, .{ .mode = .read_only });
             defer maps_file.close();
 
-            var reader_buf: [max_maps_file_len]u8 = undefined;
+            var reader_buf: [MAX_MAPS_FILE_LEN]u8 = undefined;
             var reader = maps_file.reader(&reader_buf);
             const read_len = try reader.read(&reader_buf);
 
@@ -96,7 +98,7 @@ pub fn ProcessMapParser(
 }
 
 test "Log all Maps of own process" {
-    var p = try ProcessMapParser(64, 1 * 1024 * 1024).init(1000 + 764);
+    var p = try ProcessMapParser(64).init(1817);
     defer p.deinit();
 
     for (p.maps.items) |map| std.debug.print("Map: 0x{x}-0x{x} {s}\n", .{ map.start, map.end, map.path });
