@@ -44,7 +44,7 @@ pub fn ProcessMapParser(
 
             var reader_buf: [MAX_MAPS_FILE_LEN]u8 = undefined;
             var reader = maps_file.reader(&reader_buf);
-            const read_len = try reader.read(&reader_buf);
+            const read_len = try reader.file.read(&reader_buf);
 
             var maps_split = std.mem.splitScalar(u8, reader_buf[0..read_len], '\n');
             var maps_buf: [max_maps]Map = undefined;
@@ -98,7 +98,7 @@ pub fn ProcessMapParser(
 }
 
 test "Log all Maps of own process" {
-    var p = try ProcessMapParser(64).init(1817);
+    var p = try ProcessMapParser(64).init(1825);
     defer p.deinit();
 
     for (p.maps.items) |map| std.debug.print("Map: 0x{x}-0x{x} {s}\n", .{ map.start, map.end, map.path });
