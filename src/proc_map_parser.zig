@@ -1,72 +1,52 @@
 const std = @import("std");
 
 ///  Linux process map parser
-///
-/// **Example usage**:
-/// `var parser = try ProcessMapParser(64, 1 * 1024 * 1024).init(2732);`
-/// `defer parser.deinit();`
-pub fn ProcessMapParser(
-    /// maximum number maps to process
-    comptime max_maps: usize,
-) type {
-    return struct {
-        maps: std.ArrayList(Map),
+pub const ProcessMapParser = struct {
+    proc_maps_file: std.fs.File,
+    reader: std.fs.File.Reader,
 
-        const MAX_MAPS_FILE_LEN = @sizeOf(Map) * max_maps;
+    const Perms = struct {
+        read: bool = false,
+        write: bool = false,
+        execute: bool = false,
+        private: bool = false,
+    };
 
-        const Perms = struct {
-            read: bool = false,
-            write: bool = false,
-            execute: bool = false,
-            private: bool = false,
-        };
+    const Map = struct {
+        start: usize,
+        end: usize,
+        perms: Perms,
+        path: []const u8 = "<empty_path>",
+    };
 
-        const Map = struct {
-            start: usize,
-            end: usize,
-            perms: Perms,
-            path: [std.posix.PATH_MAX]u8,
-        };
-
-        // TODO: read all file contents into a fixed buf, then use std.mem.split for the final structure.
-        pub fn init(pid: ?std.posix.pid_t) !@This() {
-            const maps_file_path = blk: {
-                if (pid) |p| {
-                    var buffer: [32]u8 = undefined;
-                    const path = try std.fmt.bufPrint(&buffer, "/proc/{}/maps", .{p});
-                    break :blk path;
-                }
-                break :blk "/proc/self/maps";
-            };
-
-            const maps_file = try std.fs.openFileAbsolute(maps_file_path, .{ .mode = .read_only });
-            defer maps_file.close();
-
-            var reader_buf: [MAX_MAPS_FILE_LEN]u8 = undefined;
-            var reader = maps_file.reader(&reader_buf);
-            const read_len = try reader.file.read(&reader_buf);
-
-            var maps_split = std.mem.splitScalar(u8, reader_buf[0..read_len], '\n');
-            var maps_buf: [max_maps]Map = undefined;
-            var maps = std.ArrayList(Map).initBuffer(&maps_buf);
-            while (maps_split.next()) |m| {
-                if (m.len == 0) break;
-                try maps.appendBounded(try parseLine(m));
+    pub fn init(pid: ?std.posix.pid_t, buf: []u8) !@This() {
+        const maps_file_path = blk: {
+            if (pid) |p| {
+                var buffer: [32]u8 = undefined;
+                const path = try std.fmt.bufPrint(&buffer, "/proc/{}/maps", .{p});
+                break :blk path;
             }
+            break :blk "/proc/self/maps";
+        };
 
-            return .{
-                .maps = maps,
-            };
-        }
+        const maps_file = try std.fs.openFileAbsolute(maps_file_path, .{ .mode = .read_only });
+        const reader = maps_file.reader(buf);
 
-        fn parseLine(line: []const u8) !Map {
-            var tokens = std.mem.tokenizeScalar(u8, line, ' ');
+        return .{
+            .proc_maps_file = maps_file,
+            .reader = reader,
+        };
+    }
 
-            const mem_range_str = tokens.next() orelse return error.FailedToParseMemRange;
-            var mem_range = std.mem.splitScalar(u8, mem_range_str, '-');
+    pub fn next(self: *@This()) !?Map {
+        const line = try self.reader.interface.takeDelimiter('\n');
+        if (line) |l| {
+            var tokens = std.mem.tokenizeScalar(u8, l, ' ');
 
-            const start = std.fmt.parseInt(usize, mem_range.next() orelse unreachable, 16) catch return error.FailedToParseStartAddress;
-            const end = std.fmt.parseInt(usize, mem_range.next() orelse unreachable, 16) catch return error.FailedToParseEndAddress;
+            const mem_range_str = tokens.next() orelse unreachable;
+            const dash_index = std.mem.indexOfScalar(u8, mem_range_str, '-').?;
+            const start = std.fmt.parseInt(usize, mem_range_str[0..dash_index], 16) catch return error.FailedToParseStartAddress;
+            const end = std.fmt.parseInt(usize, mem_range_str[dash_index + 1 ..], 16) catch return error.FailedToParseEndAddress;
 
             const perms_str = tokens.next() orelse return error.FailedToParsePermissions;
             var perms = Perms{};
@@ -76,30 +56,38 @@ pub fn ProcessMapParser(
                     'w' => perms.write = true,
                     'x' => perms.execute = true,
                     'p' => perms.private = true,
-                    else => {},
+                    inline else => {},
                 }
             }
 
             _ = tokens.next();
             _ = tokens.next();
             _ = tokens.next();
+            const path = std.mem.trim(u8, tokens.rest(), " ");
 
-            const trimmed_path = std.mem.trim(u8, tokens.rest(), " ");
-            var map: Map = .{ .start = start, .end = end, .perms = perms, .path = undefined };
-            std.mem.copyForwards(u8, map.path[0..trimmed_path.len], trimmed_path);
-
-            return map;
+            return Map{
+                .start = start,
+                .end = end,
+                .perms = perms,
+                .path = path,
+            };
+        } else {
+            return null;
         }
+    }
 
-        pub fn deinit(self: *@This()) void {
-            self.* = undefined;
-        }
-    };
-}
+    pub fn deinit(self: *@This()) void {
+        self.proc_maps_file.close();
+        self.* = undefined;
+    }
+};
 
 test "Log all Maps of own process" {
-    var p = try ProcessMapParser(64).init(1825);
+    var buf: [4096]u8 = undefined;
+    var p = try ProcessMapParser.init(1834, &buf);
     defer p.deinit();
 
-    for (p.maps.items) |map| std.debug.print("Map: 0x{x}-0x{x} {s}\n", .{ map.start, map.end, map.path });
+    while (try p.next()) |l| {
+        std.debug.print("{s} at {x}\n", .{ l.path, l.start });
+    }
 }
