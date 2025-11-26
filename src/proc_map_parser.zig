@@ -16,7 +16,7 @@ pub const ProcessMapParser = struct {
         start: usize,
         end: usize,
         perms: Perms,
-        path: []const u8 = "<empty_path>",
+        path: []const u8,
     };
 
     pub fn init(pid: ?std.posix.pid_t, buf: []u8) !@This() {
@@ -84,7 +84,7 @@ pub const ProcessMapParser = struct {
 
 test "Log all Maps of own process" {
     var buf: [4096]u8 = undefined;
-    var p = try ProcessMapParser.init(1834, &buf);
+    var p = try ProcessMapParser.init(1840, &buf);
     defer p.deinit();
 
     while (try p.next()) |l| {
